@@ -1,56 +1,17 @@
-# sv
+# Live Lyrics
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+The player opens with Volveré by Rubby Pérez. Press Play to start the bundled video and synchronized lyrics. The host plays the recording while viewers follow the lyrics. Choose **Load Volveré demo** in the lyric loader to restore the recording after using a custom track.
 
-## Creating a project
+Load a timed LRC file or paste lyrics into the player. Press Space to play or pause, click a lyric to seek, or start a live room and copy the viewer link. Anyone with that link can follow the song and scroll independently. The host can refresh the page and keep control in the same browser. End room closes the stream for everyone and removes the stored song.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Run locally
 
-```sh
-# create a new project
-npx sv create my-app
-```
+Install dependencies with `pnpm install`. Run `pnpm run preview` for a production build served locally with both Cloudflare Workers. Open the printed app URL and test the viewer link in another browser window. For hot reload, run `pnpm run dev:rooms` and `pnpm dev` in separate terminals.
 
-To recreate this project with the same configuration:
+## How synchronization works
 
-```sh
-# recreate this project
-pnpm dlx sv@1.7.0 create --template minimal --types ts --add prettier tailwindcss="plugins:typography" enhanced-img --install pnpm livelyrics
-```
+The framework-independent library in `src/lib/index.ts` parses LRC input and calculates the active cue from a playback position. Each live room has one SQLite-backed Durable Object that stores its lyrics and playback clock. Host commands use same-origin POST requests with a room-specific HTTP-only cookie and a revision check. SSE subscribers get the full track on connection or replacement. Play, pause, speed, and seek events carry just the revised clock. Clients sample server time and advance locally between events. A late or reconnecting viewer starts with the current snapshot.
 
-## Adding features
+## Check and deploy
 
-Add features to your project with `sv add`:
-
-```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Run `pnpm test` (Node 22.18 or newer), `pnpm run check`, and `pnpm run build`. With Wrangler authenticated, `pnpm run deploy` deploys the room Worker first, then the SvelteKit app with its room binding.

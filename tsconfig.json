@@ -8,5 +8,5 @@
 			"node"
 		]
 	},
-	"include": ["src", "vite.config.ts", "prettier.config.js"]
+	"include": ["rooms", "src", "vite.config.ts", "prettier.config.js"]
 }

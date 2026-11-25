@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Synced Lyrics Player</title>
+  <!-- Tailwind CSS for responsive layout and utility styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Inter font with clean system fallback -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* Base dark theme & smooth rendering */
+    :root {
+      color-scheme: dark;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #07070c;
+      color: #f8fafc;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Ambient animated background glow */
+    .ambient-orb {
+      position: fixed;
+      border-radius: 9999px;
+      filter: blur(110px);
+      opacity: 0.28;
+      pointer-events: none;
+      z-index: 0;
+      animation: floatOrb 18s ease-in-out infinite alternate;
+    }
+
+    @keyframes floatOrb {
+      0% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(3%, -4%) scale(1.08); }
+      100% { transform: translate(-3%, 4%) scale(0.96); }
+    }
+
+    /* Hide scrollbars cleanly while keeping scrollability */
+    .no-scrollbar {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* Soft top and bottom fade mask for lyric containers */
+    .lyrics-mask {
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 80%, transparent 100%);
+      mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 80%, transparent 100%);
+    }
+
+    /* Lyric line visual states */
+    .lyric-line {
+      transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                  opacity 0.45s ease,
+                  color 0.4s ease,
+                  text-shadow 0.45s ease;
+      transform-origin: left center;
+    }
+
+    .lyric-line.is-active {
+      color: #ffffff;
+      opacity: 1;
+      transform: scale(1.03);
+      text-shadow: 0 0 26px rgba(167, 139, 250, 0.45), 0 0 10px rgba(255, 255, 255, 0.25);
+    }
+
+    .lyric-line.is-past {
+      color: rgba(255, 255, 255, 0.34);
+      opacity: 0.65;
+      transform: scale(1);
+    }
+
+    .lyric-line.is-upcoming {
+      color: rgba(255, 255, 255, 0.42);
+      opacity: 0.55;
+      transform: scale(1);
+    }
+
+    /* Instrumental pulsing equalizer dots */
+    @keyframes pulseDot {
+      0%, 100% { transform: scale(0.8); opacity: 0.4; }
+      50% { transform: scale(1.25); opacity: 1; }
+    }
+
+    .inst-dot {
+      animation: pulseDot 1.3s ease-in-out infinite;
+    }
+    .inst-dot:nth-child(2) { animation-delay: 0.2s; }
+    .inst-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    /* Custom sleek range scrubber */
+    input[type="range"].scrubber {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.14);
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"].scrubber::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 9999px;
+      background: #ffffff;
+      box-shadow: 0 0 12px rgba(167, 139, 250, 0.8);
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+
+    input[type="range"].scrubber::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    input[type="range"].scrubber::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border: none;
+      border-radius: 9999px;
+      background: #ffffff;
+      box-shadow: 0 0 12px rgba(167, 139, 250, 0.8);
+      cursor: pointer;
+    }
+
+    /* Tabular numbers for jitter-free timers */
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Glassmorphic surfaces */
+    .glass {
+      background: rgba(18, 18, 28, 0.65);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+    }
+
+    .glass-strong {
+      background: rgba(14, 14, 22, 0.86);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+  </style>
+</head>
+<body class="h-[100dvh] w-full flex flex-col overflow-hidden select-none">
+
+  <!-- Ambient Background Glow Orbs -->
+  <div class="ambient-orb w-80 h-80 bg-violet-600 -top-24 -left-20"></div>
+  <div class="ambient-orb w-96 h-96 bg-cyan-500 -bottom-28 -right-20" style="animation-delay: -6s;"></div>
+  <div class="ambient-orb w-64 h-64 bg-fuchsia-600 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-15" style="animation-delay: -11s;"></div>
+
+  <!-- =========================================================
+       TOP HEADER BAR
+       ========================================================= -->
+  <header class="relative z-20 w-full px-3 sm:px-6 py-3 glass border-x-0 border-t-0 shrink-0">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+      <!-- Track Metadata -->
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/30 to-cyan-500/20 border border-white/15 flex items-center justify-center shrink-0 shadow-lg">
+          <svg class="w-5 h-5 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <h1 id="headerTitle" class="text-sm sm:text-base font-bold text-white truncate leading-tight">Midnight Tides</h1>
+          <p id="headerSubtitle" class="text-xs text-slate-400 truncate">Lunar Drift • Starlight Sessions</p>
+        </div>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+        <!-- Load LRC Modal Trigger -->
+        <button id="btnOpenLoadModal" type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 active:scale-95 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-violet-600/25 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <span>Load LRC</span>
+        </button>
+
+        <!-- Mode Toggle (Host / Viewer) -->
+        <button id="btnToggleRole" type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs sm:text-sm font-semibold text-white transition active:scale-95"
+          title="Switch between Host and Viewer mode">
+          <span id="roleDot" class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"></span>
+          <span id="roleLabel">Host</span>
+        </button>
+
+        <!-- Split Preview Toggle -->
+        <button id="btnToggleSplit" type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs sm:text-sm font-medium text-slate-200 transition active:scale-95"
+          title="Show a simulated mobile Viewer phone alongside the Host">
+          <svg class="w-4 h-4 text-cyan-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <line x1="12" y1="3" x2="12" y2="21"></line>
+          </svg>
+          <span class="hidden sm:inline">Split Preview</span>
+          <span class="sm:hidden">Split</span>
+        </button>
+
+        <!-- Screen Wake Lock Toggle -->
+        <button id="btnWakeLock" type="button"
+          class="inline-flex items-center justify-center p-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 transition active:scale-95"
+          title="Keep Screen Awake (Wake Lock)">
+          <svg id="wakeLockIcon" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2"></path>
+            <path d="M12 20v2"></path>
+            <path d="m4.93 4.93 1.41 1.41"></path>
+            <path d="m17.66 17.66 1.41 1.41"></path>
+            <path d="M2 12h2"></path>
+            <path d="M20 12h2"></path>
+            <path d="m6.34 17.66-1.41 1.41"></path>
+            <path d="m19.07 4.93-1.41 1.41"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- =========================================================
+       MAIN WORKSPACE (Single View OR Split Preview)
+       ========================================================= -->
+  <main id="mainWorkspace" class="relative z-10 flex-1 min-h-0 w-full max-w-7xl mx-auto flex flex-col lg:flex-row items-stretch justify-center gap-4 p-2 sm:p-4 overflow-hidden">
+
+    <!-- PRIMARY PANEL (Host or Full-Screen Viewer) -->
+    <section id="primaryPanel" class="relative flex-1 min-h-0 flex flex-col rounded-3xl glass overflow-hidden shadow-2xl">
+      <!-- Subtle Panel Status Strip -->
+      <div class="flex items-center justify-between px-4 sm:px-6 py-2.5 border-b border-white/5 bg-white/[0.02] shrink-0">
+        <div class="flex items-center gap-2 text-xs font-medium text-slate-300">
+          <span id="primaryModeBadge" class="px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-400/20">
+            Host Controller
+          </span>
+          <span id="primaryHint" class="text-slate-400 hidden sm:inline">Tap any line to jump playback</span>
+        </div>
+        <div class="flex items-center gap-2 text-xs text-slate-400">
+          <span id="syncTransportBadge" class="inline-flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span>Tab Sync Ready</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Primary Lyrics Scroll Area -->
+      <div id="primaryLyricsContainer" class="relative flex-1 min-h-0 overflow-y-auto no-scrollbar lyrics-mask px-5 sm:px-10 py-32 sm:py-44">
+        <div id="primaryLyricsList" class="max-w-2xl mx-auto flex flex-col gap-6 sm:gap-7">
+          <!-- Populated dynamically by renderLyrics() -->
+        </div>
+      </div>
+
+      <!-- Floating Re-Sync Button (Primary) -->
+      <div id="primaryResyncWrap" class="hidden absolute bottom-36 left-1/2 -translate-x-1/2 z-30">
+        <button id="btnPrimaryResync" type="button"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-strong text-white text-xs sm:text-sm font-semibold shadow-xl hover:bg-white/15 active:scale-95 transition">
+          <svg class="w-4 h-4 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+          <span>Re-sync</span>
+        </button>
+      </div>
+
+      <!-- Bottom Control Deck (Host Controls OR Viewer Status Bar) -->
+      <div class="relative z-20 px-4 sm:px-6 pt-3 pb-4 sm:pb-5 bg-gradient-to-t from-black/80 via-black/60 to-transparent border-t border-white/5 shrink-0">
+        <div class="max-w-2xl mx-auto flex flex-col gap-3">
+
+          <!-- Progress Scrubber & Timestamps -->
+          <div class="flex items-center gap-3">
+            <span id="timeCurrent" class="text-xs font-mono tabular-nums text-slate-300 w-11 text-right">0:00</span>
+            <div class="relative flex-1 flex items-center">
+              <input id="progressScrubber" type="range" min="0" max="1000" value="0" step="1" class="scrubber" aria-label="Playback progress" />
+            </div>
+            <span id="timeTotal" class="text-xs font-mono tabular-nums text-slate-400 w-11">0:45</span>
+          </div>
+
+          <!-- HOST CONTROLS ROW -->
+          <div id="hostControlsRow" class="flex items-center justify-between gap-2 pt-1">
+            <!-- Left: Speed Selector -->
+            <div class="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-1">
+              <button type="button" data-speed="1" class="speed-btn px-2.5 py-1 rounded-lg text-xs font-semibold transition bg-violet-600 text-white">1x</button>
+              <button type="button" data-speed="1.5" class="speed-btn px-2.5 py-1 rounded-lg text-xs font-semibold transition text-slate-300 hover:text-white">1.5x</button>
+              <button type="button" data-speed="2" class="speed-btn px-2.5 py-1 rounded-lg text-xs font-semibold transition text-slate-300 hover:text-white">2x</button>
+            </div>
+
+            <!-- Center: Reset + Play/Pause -->
+            <div class="flex items-center gap-3">
+              <button id="btnReset" type="button"
+                class="p-2.5 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white active:scale-95 transition"
+                title="Reset to 0:00">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                </svg>
+              </button>
+
+              <button id="btnPlayPause" type="button"
+                class="w-13 h-13 p-3.5 rounded-full bg-white text-slate-950 hover:scale-105 active:scale-95 shadow-[0_0_24px_rgba(255,255,255,0.35)] transition flex items-center justify-center"
+                aria-label="Play or Pause">
+                <!-- Play Icon -->
+                <svg id="iconPlay" class="w-6 h-6 ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="6 4 20 12 6 20 6 4"></polygon>
+                </svg>
+                <!-- Pause Icon -->
+                <svg id="iconPause" class="w-6 h-6 hidden" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+                  <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Right: Quick Jump -5s / +5s -->
+            <div class="flex items-center gap-1">
+              <button id="btnSkipBack" type="button"
+                class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-semibold text-slate-300 hover:text-white active:scale-95 transition"
+                title="Back 5 seconds">-5s</button>
+              <button id="btnSkipForward" type="button"
+                class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-semibold text-slate-300 hover:text-white active:scale-95 transition"
+                title="Forward 5 seconds">+5s</button>
+            </div>
+          </div>
+
+          <!-- VIEWER STATUS ROW (Shown when Primary Panel is in Viewer Mode) -->
+          <div id="viewerStatusRow" class="hidden flex items-center justify-center pt-1">
+            <div class="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-violet-500/15 border border-violet-400/25 text-violet-200 text-xs sm:text-sm font-medium">
+              <span class="relative flex h-2.5 w-2.5">
+                <span id="viewerPingDot" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-violet-400"></span>
+              </span>
+              <span id="viewerStatusText">Waiting for Host playback...</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SPLIT PREVIEW: SIMULATED MOBILE VIEWER PHONE
+         ========================================================= -->
+    <aside id="splitViewerPanel" class="hidden lg:w-[370px] w-full max-h-[48dvh] lg:max-h-full shrink-0 flex flex-col items-center justify-center">
+      <!-- Simulated Phone Bezel -->
+      <div class="relative w-full h-full max-w-[360px] rounded-[2.25rem] border-[5px] border-slate-800 bg-[#090910] shadow-[0_25px_70px_rgba(0,0,0,0.75)] flex flex-col overflow-hidden">
+        <!-- Phone Dynamic Island / Top Bar -->
+        <div class="px-5 pt-3 pb-2.5 bg-black/50 border-b border-white/5 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="relative flex h-2 w-2 shrink-0">
+              <span id="phoneSyncPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+            </span>
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-emerald-300 truncate">Mobile Viewer</span>
+          </div>
+          <span id="phoneTimeBadge" class="text-[11px] font-mono tabular-nums text-slate-400">0:00</span>
+        </div>
+
+        <!-- Phone Track Mini-Header -->
+        <div class="px-5 py-2 bg-white/[0.02] border-b border-white/5 shrink-0">
+          <p id="phoneTrackTitle" class="text-xs font-bold text-white truncate">Midnight Tides</p>
+          <p id="phoneTrackArtist" class="text-[11px] text-slate-400 truncate">Lunar Drift</p>
+        </div>
+
+        <!-- Phone Lyrics Scroll Area -->
+        <div id="phoneLyricsContainer" class="relative flex-1 min-h-0 overflow-y-auto no-scrollbar lyrics-mask px-5 py-24">
+          <div id="phoneLyricsList" class="flex flex-col gap-5">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Phone Floating Re-Sync Button -->
+        <div id="phoneResyncWrap" class="hidden absolute bottom-14 left-1/2 -translate-x-1/2 z-30">
+          <button id="btnPhoneResync" type="button"
+            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full glass-strong text-white text-xs font-semibold shadow-xl hover:bg-white/15 active:scale-95 transition">
+            <svg class="w-3.5 h-3.5 text-cyan-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span>Re-sync</span>
+          </button>
+        </div>
+
+        <!-- Phone Bottom Progress Strip -->
+        <div class="px-5 py-3 bg-black/60 border-t border-white/5 shrink-0">
+          <div class="w-full h-1 rounded-full bg-white/10 overflow-hidden mb-1.5">
+            <div id="phoneProgressBar" class="h-full bg-gradient-to-r from-violet-500 to-cyan-400 rounded-full transition-all duration-100" style="width: 0%"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span id="phoneSyncStatus">Synced with Host</span>
+            <span id="phoneSpeedBadge">1x</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- =========================================================
+       LOAD CUSTOM LRC MODAL
+       ========================================================= -->
+  <div id="lrcModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+    <div class="w-full max-w-xl rounded-3xl glass-strong shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-white/10">
+        <div>
+          <h2 class="text-base sm:text-lg font-bold text-white">Load Custom LRC</h2>
+          <p class="text-xs text-slate-400">Paste raw LRC text or upload a .lrc file to sync across all connected devices.</p>
+        </div>
+        <button id="btnCloseModal" type="button" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition" aria-label="Close modal">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 sm:p-6 flex flex-col gap-4 overflow-y-auto">
+        <!-- File Upload Bar -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <label for="lrcFileInput"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs sm:text-sm font-semibold text-white cursor-pointer transition active:scale-95">
+            <svg class="w-4 h-4 text-cyan-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="12" y1="18" x2="12" y2="12"></line>
+              <line x1="9" y1="15" x2="15" y2="15"></line>
+            </svg>
+            <span>Upload .lrc File</span>
+            <input id="lrcFileInput" type="file" accept=".lrc,.txt,text/plain" class="hidden" />
+          </label>
+
+          <div class="flex items-center gap-2">
+            <button id="btnLoadSample" type="button" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-300 hover:text-white transition">
+              Restore Sample
+            </button>
+            <button id="btnClearLrc" type="button" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-300 hover:text-white transition">
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <!-- Textarea -->
+        <textarea id="lrcTextarea" rows="10" spellcheck="false"
+          placeholder="[ti:Song Title]&#10;[ar:Artist Name]&#10;[00:05.00]First line of lyrics..."
+          class="w-full rounded-2xl bg-black/50 border border-white/15 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/30 outline-none p-4 text-xs sm:text-sm font-mono text-slate-200 placeholder-slate-500 resize-y"></textarea>
+
+        <!-- Live Parse Preview Status -->
+        <div id="lrcParseFeedback" class="text-xs px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300">
+          Ready to parse LRC.
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="flex items-center justify-end gap-2.5 px-6 py-4 border-t border-white/10 bg-black/30">
+        <button id="btnCancelModal" type="button" class="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs sm:text-sm font-semibold text-slate-300 transition">
+          Cancel
+        </button>
+        <button id="btnApplyLrc" type="button" class="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-xs sm:text-sm font-semibold text-white shadow-lg shadow-violet-600/25 active:scale-95 transition">
+          Apply &amp; Sync
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       TOAST NOTIFICATION BANNER (Replaces alert())
+       ========================================================= -->
+  <div id="toast" class="pointer-events-none fixed bottom-6 right-4 sm:right-6 z-50 opacity-0 translate-y-3 transition-all duration-300">
+    <div id="toastInner" class="px-4 py-2.5 rounded-2xl glass-strong text-xs sm:text-sm font-medium text-white shadow-2xl border border-white/15">
+      Notification
+    </div>
+  </div>
+
+  <!-- =========================================================
+       APPLICATION JAVASCRIPT
+       ========================================================= -->
+  <script>
+    (function () {
+      'use strict';
+
+      // ==========================================
+      // 1. ORIGINAL PRELOADED SAMPLE LRC (45s)
+      // ==========================================
+      const SAMPLE_LRC = `[ti:Midnight Tides]
+[ar:Lunar Drift]
+[al:Starlight Sessions]
+[length:00:45]
+
+[00:02.00]Silver ripples on the midnight bay
+[00:05.80]Washing every quiet thought away
+[00:09.60]Constellations mirror in the foam
+[00:13.40]Guiding every drifting signal home
+[00:17.20]Hold the rhythm as the shoreline glows
+[00:21.00]
+[00:25.20]Starlight falling through the open air
+[00:29.00]Every heartbeat echoing out there
+[00:32.80]Waves in motion, glowing side by side
+[00:36.60]Moving softly with the midnight tide
+[00:41.00]`;
+
+      // ==========================================
+      // 2. LRC PARSER
+      // Supports [ti:], [ar:], [al:], [length:],
+      // [mm:ss.xx], [mm:ss.xxx], multiple timestamps
+      // per line, and blank instrumental lines.
+      // ==========================================
+      function parseLRC(rawText) {
+        const meta = {
+          title: 'Untitled Track',
+          artist: 'Unknown Artist',
+          album: '',
+          lengthMs: 0,
+        };
+
+        const cues = [];
+        const lines = String(rawText || '').split(/\r?\n/);
+
+        const metaRegex = /^\[(ti|ar|al|length)\s*:\s*(.*?)\s*\]$/i;
+        const timeTagRegex = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          // Check metadata tags
+          const metaMatch = line.match(metaRegex);
+          if (metaMatch) {
+            const key = metaMatch[1].toLowerCase();
+            const val = metaMatch[2].trim();
+            if (key === 'ti' && val) meta.title = val;
+            else if (key === 'ar' && val) meta.artist = val;
+            else if (key === 'al' && val) meta.album = val;
+            else if (key === 'length' && val) {
+              const lenMatch = val.match(/^(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?$/);
+              if (lenMatch) {
+                const m = parseInt(lenMatch[1], 10);
+                const s = parseInt(lenMatch[2], 10);
+                const frac = lenMatch[3] ? parseInt(lenMatch[3].padEnd(3, '0'), 10) : 0;
+                meta.lengthMs = m * 60000 + s * 1000 + frac;
+              }
+            }
+            continue;
+          }
+
+          // Extract all timestamps on this line
+          timeTagRegex.lastIndex = 0;
+          const timestamps = [];
+          let match;
+          while ((match = timeTagRegex.exec(line)) !== null) {
+            const minutes = parseInt(match[1], 10);
+            const seconds = parseInt(match[2], 10);
+            let ms = 0;
+            if (match[3]) {
+              ms = match[3].length === 1
+                ? parseInt(match[3], 10) * 100
+                : match[3].length === 2
+                  ? parseInt(match[3], 10) * 10
+                  : parseInt(match[3].slice(0, 3), 10);
+            }
+            timestamps.push(minutes * 60000 + seconds * 1000 + ms);
+          }
+
+          if (timestamps.length > 0) {
+            const text = line.replace(timeTagRegex, '').trim();
+            const isInstrumental = text.length === 0;
+            for (const timeMs of timestamps) {
+              cues.push({ timeMs, text, isInstrumental });
+            }
+          }
+        }
+
+        // Sort cues chronologically
+        cues.sort((a, b) => a.timeMs - b.timeMs);
+
+        // Compute total duration
+        const lastCueMs = cues.length > 0 ? cues[cues.length - 1].timeMs : 0;
+        const totalDurationMs = Math.max(meta.lengthMs, lastCueMs + 4000, 10000);
+
+        return { meta, cues, totalDurationMs };
+      }
+
+      function formatTime(ms) {
+        const clamped = Math.max(0, Math.floor(ms / 1000));
+        const minutes = Math.floor(clamped / 60);
+        const seconds = clamped % 60;
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      }
+
+      // ==========================================
+      // 3. APPLICATION STATE & SYNC ENGINE
+      // ==========================================
+      const CHANNEL_NAME = 'synced_lyrics_channel_v1';
+      const STORAGE_KEY = 'synced_lyrics_state_v1';
+      const TAB_ID = Math.random().toString(36).slice(2, 10);
+
+      let isHost = true;
+      let isSplitPreview = false;
+      let isScrubbing = false;
+      let wakeLockSentinel = null;
+
+      // Shared synchronized playback state
+      let syncState = {
+        senderId: TAB_ID,
+        updatedAt: Date.now(),
+        lrcText: SAMPLE_LRC,
+        isPlaying: false,
+        anchorTimeMs: 0,      // Date.now() when playback started/resumed
+        anchorOffsetMs: 0,    // Track position in ms at anchorTimeMs
+        playbackRate: 1,      // 1, 1.5, or 2
+      };
+
+      // Parsed track cache
+      let parsedTrack = parseLRC(syncState.lrcText);
+      let renderedLrcText = '';
+
+      // Independent viewport tracking (Primary & Simulated Phone)
+      const viewports = {
+        primary: {
+          activeIndex: -1,
+          manualScroll: false,
+          programmaticScrollUntil: 0,
+        },
+        phone: {
+          activeIndex: -1,
+          manualScroll: false,
+          programmaticScrollUntil: 0,
+        },
+      };
+
+      // Setup BroadcastChannel with graceful fallback
+      let broadcastChannel = null;
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          broadcastChannel = new BroadcastChannel(CHANNEL_NAME);
+        }
+      } catch (err) {
+        broadcastChannel = null;
+      }
+
+      // ==========================================
+      // 4. DOM ELEMENT REFERENCES
+      // ==========================================
+      const els = {
+        headerTitle: document.getElementById('headerTitle'),
+        headerSubtitle: document.getElementById('headerSubtitle'),
+        btnOpenLoadModal: document.getElementById('btnOpenLoadModal'),
+        btnToggleRole: document.getElementById('btnToggleRole'),
+        roleDot: document.getElementById('roleDot'),
+        roleLabel: document.getElementById('roleLabel'),
+        btnToggleSplit: document.getElementById('btnToggleSplit'),
+        btnWakeLock: document.getElementById('btnWakeLock'),
+        wakeLockIcon: document.getElementById('wakeLockIcon'),
+
+        primaryModeBadge: document.getElementById('primaryModeBadge'),
+        primaryHint: document.getElementById('primaryHint'),
+        syncTransportBadge: document.getElementById('syncTransportBadge'),
+        primaryLyricsContainer: document.getElementById('primaryLyricsContainer'),
+        primaryLyricsList: document.getElementById('primaryLyricsList'),
+        primaryResyncWrap: document.getElementById('primaryResyncWrap'),
+        btnPrimaryResync: document.getElementById('btnPrimaryResync'),
+
+        timeCurrent: document.getElementById('timeCurrent'),
+        timeTotal: document.getElementById('timeTotal'),
+        progressScrubber: document.getElementById('progressScrubber'),
+        hostControlsRow: document.getElementById('hostControlsRow'),
+        viewerStatusRow: document.getElementById('viewerStatusRow'),
+        viewerPingDot: document.getElementById('viewerPingDot'),
+        viewerStatusText: document.getElementById('viewerStatusText'),
+
+        btnPlayPause: document.getElementById('btnPlayPause'),
+        iconPlay: document.getElementById('iconPlay'),
+        iconPause: document.getElementById('iconPause'),
+        btnReset: document.getElementById('btnReset'),
+        btnSkipBack: document.getElementById('btnSkipBack'),
+        btnSkipForward: document.getElementById('btnSkipForward'),
+        speedBtns: Array.from(document.querySelectorAll('.speed-btn')),
+
+        splitViewerPanel: document.getElementById('splitViewerPanel'),
+        phoneSyncPing: document.getElementById('phoneSyncPing'),
+        phoneTimeBadge: document.getElementById('phoneTimeBadge'),
+        phoneTrackTitle: document.getElementById('phoneTrackTitle'),
+        phoneTrackArtist: document.getElementById('phoneTrackArtist'),
+        phoneLyricsContainer: document.getElementById('phoneLyricsContainer'),
+        phoneLyricsList: document.getElementById('phoneLyricsList'),
+        phoneResyncWrap: document.getElementById('phoneResyncWrap'),
+        btnPhoneResync: document.getElementById('btnPhoneResync'),
+        phoneProgressBar: document.getElementById('phoneProgressBar'),
+        phoneSyncStatus: document.getElementById('phoneSyncStatus'),
+        phoneSpeedBadge: document.getElementById('phoneSpeedBadge'),
+
+        lrcModal: document.getElementById('lrcModal'),
+        btnCloseModal: document.getElementById('btnCloseModal'),
+        btnCancelModal: document.getElementById('btnCancelModal'),
+        btnApplyLrc: document.getElementById('btnApplyLrc'),
+        btnLoadSample: document.getElementById('btnLoadSample'),
+        btnClearLrc: document.getElementById('btnClearLrc'),
+        lrcFileInput: document.getElementById('lrcFileInput'),
+        lrcTextarea: document.getElementById('lrcTextarea'),
+        lrcParseFeedback: document.getElementById('lrcParseFeedback'),
+
+        toast: document.getElementById('toast'),
+        toastInner: document.getElementById('toastInner'),
+      };
+
+      // ==========================================
+      // 5. TOAST NOTIFICATIONS
+      // ==========================================
+      let toastTimer = null;
+      function showToast(message) {
+        els.toastInner.textContent = message;
+        els.toast.classList.remove('opacity-0', 'translate-y-3');
+        els.toast.classList.add('opacity-100', 'translate-y-0');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          els.toast.classList.add('opacity-0', 'translate-y-3');
+          els.toast.classList.remove('opacity-100', 'translate-y-0');
+        }, 2800);
+      }
+
+      // ==========================================
+      // 6. PLAYBACK TIME & SYNC HELPERS
+      // ==========================================
+      function getCurrentPlaybackMs() {
+        if (!syncState.isPlaying) {
+          return Math.max(0, Math.min(parsedTrack.totalDurationMs, syncState.anchorOffsetMs));
+        }
+        const elapsed = (Date.now() - syncState.anchorTimeMs) * syncState.playbackRate;
+        return Math.max(0, Math.min(parsedTrack.totalDurationMs, syncState.anchorOffsetMs + elapsed));
+      }
+
+      function broadcastState(nextState) {
+        syncState = {
+          ...nextState,
+          senderId: TAB_ID,
+          updatedAt: Date.now(),
+        };
+
+        // Persist to localStorage (also fires 'storage' event in other tabs as fallback)
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(syncState));
+        } catch (err) {
+          // Ignore storage quota / sandbox restrictions
+        }
+
+        // Send over BroadcastChannel for instant low-latency cross-tab sync
+        if (broadcastChannel) {
+          try {
+            broadcastChannel.postMessage({ type: 'SYNC_STATE', payload: syncState });
+          } catch (err) {
+            // Ignore channel errors
+          }
+        }
+
+        applySyncStateToUI();
+      }
+
+      function receiveRemoteState(remoteState) {
+        if (!remoteState || remoteState.senderId === TAB_ID) return;
+        syncState = remoteState;
+        applySyncStateToUI();
+      }
+
+      // Listen on BroadcastChannel
+      if (broadcastChannel) {
+        broadcastChannel.onmessage = (event) => {
+          const msg = event.data;
+          if (!msg) return;
+          if (msg.type === 'SYNC_STATE' && msg.payload) {
+            receiveRemoteState(msg.payload);
+          } else if (msg.type === 'REQUEST_STATE' && isHost) {
+            // Host responds to newly opened viewer tabs
+            broadcastChannel.postMessage({ type: 'SYNC_STATE', payload: syncState });
+          }
+        };
+      }
+
+      // Listen on localStorage 'storage' event (fallback for browsers without BroadcastChannel)
+      window.addEventListener('storage', (event) => {
+        if (event.key === STORAGE_KEY && event.newValue) {
+          try {
+            const parsed = JSON.parse(event.newValue);
+            receiveRemoteState(parsed);
+          } catch (err) {
+            // Ignore malformed storage payload
+          }
+        }
+      });
+
+      // Hydrate initial state from localStorage or ask active Host
+      function hydrateInitialState() {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed && typeof parsed.lrcText === 'string') {
+              syncState = parsed;
+            }
+          }
+        } catch (err) {
+          // Use default sample track
+        }
+
+        if (broadcastChannel) {
+          try {
+            broadcastChannel.postMessage({ type: 'REQUEST_STATE', senderId: TAB_ID });
+          } catch (err) {
+            // Ignore
+          }
+        }
+
+        els.syncTransportBadge.innerHTML = broadcastChannel
+          ? '<span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span><span>BroadcastChannel Sync</span>'
+          : '<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>Storage Sync</span>';
+      }
+
+      // ==========================================
+      // 7. RENDERING LYRICS & METADATA
+      // ==========================================
+      function createLyricElement(cue, index, isPhone) {
+        const wrapper = document.createElement('div');
+        wrapper.dataset.index = String(index);
+        wrapper.className = 'lyric-line is-upcoming flex items-center gap-3';
+
+        if (cue.isInstrumental) {
+          wrapper.innerHTML = `
+            <div class="inline-flex items-center gap-2.5 py-2 px-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
+              <svg class="${isPhone ? 'w-4 h-4' : 'w-5 h-5'} text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18V5l12-2v13"></path>
+                <circle cx="6" cy="18" r="3"></circle>
+                <circle cx="18" cy="16" r="3"></circle>
+              </svg>
+              <span class="flex items-center gap-1.5">
+                <span class="inst-dot w-1.5 h-1.5 rounded-full bg-violet-300"></span>
+                <span class="inst-dot w-1.5 h-1.5 rounded-full bg-cyan-300"></span>
+                <span class="inst-dot w-1.5 h-1.5 rounded-full bg-violet-300"></span>
+              </span>
+              <span class="${isPhone ? 'text-xs' : 'text-xs sm:text-sm'} font-medium tracking-wide uppercase text-slate-400">Instrumental</span>
+            </div>
+          `;
+        } else {
+          const p = document.createElement('p');
+          p.textContent = cue.text;
+          p.className = isPhone
+            ? 'text-lg font-bold leading-snug tracking-tight'
+            : 'text-2xl sm:text-3xl md:text-4xl font-bold leading-snug tracking-tight';
+          wrapper.appendChild(p);
+        }
+
+        // In Host mode, clicking any line on the primary panel jumps playback to that timestamp
+        if (!isPhone) {
+          wrapper.classList.add('cursor-pointer', 'hover:opacity-90');
+          wrapper.addEventListener('click', () => {
+            if (!isHost) return;
+            seekToMs(cue.timeMs);
+          });
+        }
+
+        return wrapper;
+      }
+
+      function renderLyricsIfNeeded() {
+        if (renderedLrcText === syncState.lrcText) return;
+        renderedLrcText = syncState.lrcText;
+        parsedTrack = parseLRC(syncState.lrcText);
+
+        // Update headers & metadata
+        els.headerTitle.textContent = parsedTrack.meta.title;
+        els.headerSubtitle.textContent = parsedTrack.meta.album
+          ? `${parsedTrack.meta.artist} • ${parsedTrack.meta.album}`
+          : parsedTrack.meta.artist;
+
+        els.phoneTrackTitle.textContent = parsedTrack.meta.title;
+        els.phoneTrackArtist.textContent = parsedTrack.meta.artist;
+        els.timeTotal.textContent = formatTime(parsedTrack.totalDurationMs);
+
+        // Clear and rebuild both lyric lists
+        els.primaryLyricsList.innerHTML = '';
+        els.phoneLyricsList.innerHTML = '';
+
+        if (parsedTrack.cues.length === 0) {
+          const emptyHtml = '<p class="text-slate-400 text-center py-12 text-sm">No timestamped lines found in this LRC file.</p>';
+          els.primaryLyricsList.innerHTML = emptyHtml;
+          els.phoneLyricsList.innerHTML = emptyHtml;
+        } else {
+          const primaryFrag = document.createDocumentFragment();
+          const phoneFrag = document.createDocumentFragment();
+
+          parsedTrack.cues.forEach((cue, idx) => {
+            primaryFrag.appendChild(createLyricElement(cue, idx, false));
+            phoneFrag.appendChild(createLyricElement(cue, idx, true));
+          });
+
+          els.primaryLyricsList.appendChild(primaryFrag);
+          els.phoneLyricsList.appendChild(phoneFrag);
+        }
+
+        // Reset viewport scroll states
+        viewports.primary.activeIndex = -1;
+        viewports.phone.activeIndex = -1;
+        setManualScroll('primary', false);
+        setManualScroll('phone', false);
+        els.primaryLyricsContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        els.phoneLyricsContainer.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      function applySyncStateToUI() {
+        renderLyricsIfNeeded();
+
+        // Update Play / Pause icons
+        if (syncState.isPlaying) {
+          els.iconPlay.classList.add('hidden');
+          els.iconPause.classList.remove('hidden');
+          els.viewerStatusText.textContent = `Live Sync Active (${syncState.playbackRate}x)`;
+          els.viewerPingDot.classList.remove('hidden');
+          els.phoneSyncPing.classList.remove('hidden');
+          els.phoneSyncStatus.textContent = 'Live Sync Active';
+        } else {
+          els.iconPlay.classList.remove('hidden');
+          els.iconPause.classList.add('hidden');
+          const pos = getCurrentPlaybackMs();
+          els.viewerStatusText.textContent = pos > 0 ? 'Paused by Host' : 'Waiting for Host playback...';
+          els.viewerPingDot.classList.add('hidden');
+          els.phoneSyncPing.classList.add('hidden');
+          els.phoneSyncStatus.textContent = pos > 0 ? 'Paused by Host' : 'Ready for Host';
+        }
+
+        // Update speed buttons & phone badge
+        els.phoneSpeedBadge.textContent = `${syncState.playbackRate}x`;
+        els.speedBtns.forEach((btn) => {
+          const speed = parseFloat(btn.dataset.speed);
+          if (speed === syncState.playbackRate) {
+            btn.classList.add('bg-violet-600', 'text-white');
+            btn.classList.remove('text-slate-300');
+          } else {
+            btn.classList.remove('bg-violet-600', 'text-white');
+            btn.classList.add('text-slate-300');
+          }
+        });
+      }
+
+      function updateRoleUI() {
+        if (isHost) {
+          els.roleLabel.textContent = 'Host';
+          els.roleDot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]';
+          els.primaryModeBadge.textContent = 'Host Controller';
+          els.primaryModeBadge.className = 'px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-400/20';
+          els.primaryHint.classList.remove('hidden');
+          els.hostControlsRow.classList.remove('hidden');
+          els.viewerStatusRow.classList.add('hidden');
+          els.progressScrubber.disabled = false;
+          els.progressScrubber.classList.remove('opacity-60', 'pointer-events-none');
+        } else {
+          els.roleLabel.textContent = 'Viewer';
+          els.roleDot.className = 'w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.9)]';
+          els.primaryModeBadge.textContent = 'Viewer Mode';
+          els.primaryModeBadge.className = 'px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/20';
+          els.primaryHint.classList.add('hidden');
+          els.hostControlsRow.classList.add('hidden');
+          els.viewerStatusRow.classList.remove('hidden');
+          els.progressScrubber.disabled = true;
+          els.progressScrubber.classList.add('opacity-60', 'pointer-events-none');
+        }
+      }
+
+      // ==========================================
+      // 8. SMOOTH AUTO-SCROLL & MANUAL OVERRIDE
+      // ==========================================
+      function setManualScroll(targetKey, isManual) {
+        viewports[targetKey].manualScroll = isManual;
+        const wrap = targetKey === 'primary' ? els.primaryResyncWrap : els.phoneResyncWrap;
+        if (isManual) {
+          wrap.classList.remove('hidden');
+        } else {
+          wrap.classList.add('hidden');
+        }
+      }
+
+      function scrollActiveLineIntoCenter(targetKey, index, immediate) {
+        const container = targetKey === 'primary' ? els.primaryLyricsContainer : els.phoneLyricsContainer;
+        const list = targetKey === 'primary' ? els.primaryLyricsList : els.phoneLyricsList;
+        const el = list.children[index];
+        if (!el || !container) return;
+
+        // Mark programmatic scroll window so scroll/wheel listeners don't misinterpret it
+        viewports[targetKey].programmaticScrollUntil = Date.now() + 700;
+
+        // Calculate exact centered scrollTop inside this container (avoids jolting outer layout in Split Preview)
+        const targetTop = el.offsetTop - (container.clientHeight / 2) + (el.clientHeight / 2);
+        container.scrollTo({
+          top: Math.max(0, targetTop),
+          behavior: immediate ? 'auto' : 'smooth',
+        });
+      }
+
+      function updateViewportHighlight(targetKey, newIndex) {
+        const vp = viewports[targetKey];
+        if (vp.activeIndex === newIndex) return;
+        vp.activeIndex = newIndex;
+
+        const list = targetKey === 'primary' ? els.primaryLyricsList : els.phoneLyricsList;
+        const children = list.children;
+
+        for (let i = 0; i < children.length; i++) {
+          const el = children[i];
+          el.classList.remove('is-active', 'is-past', 'is-upcoming');
+          if (i === newIndex) {
+            el.classList.add('is-active');
+          } else if (i < newIndex) {
+            el.classList.add('is-past');
+          } else {
+            el.classList.add('is-upcoming');
+          }
+        }
+
+        if (newIndex >= 0 && !vp.manualScroll) {
+          scrollActiveLineIntoCenter(targetKey, newIndex, false);
+        }
+      }
+
+      // Attach manual scroll override listeners to both containers
+      function attachManualScrollDetection(targetKey, container) {
+        const triggerManual = () => {
+          if (Date.now() < viewports[targetKey].programmaticScrollUntil) return;
+          if (parsedTrack.cues.length === 0) return;
+          setManualScroll(targetKey, true);
+        };
+
+        container.addEventListener('wheel', triggerManual, { passive: true });
+        container.addEventListener('touchmove', triggerManual, { passive: true });
+      }
+
+      attachManualScrollDetection('primary', els.primaryLyricsContainer);
+      attachManualScrollDetection('phone', els.phoneLyricsContainer);
+
+      els.btnPrimaryResync.addEventListener('click', () => {
+        setManualScroll('primary', false);
+        if (viewports.primary.activeIndex >= 0) {
+          scrollActiveLineIntoCenter('primary', viewports.primary.activeIndex, false);
+        }
+      });
+
+      els.btnPhoneResync.addEventListener('click', () => {
+        setManualScroll('phone', false);
+        if (viewports.phone.activeIndex >= 0) {
+          scrollActiveLineIntoCenter('phone', viewports.phone.activeIndex, false);
+        }
+      });
+
+      // ==========================================
+      // 9. REQUESTANIMATIONFRAME CLOCK LOOP
+      // ==========================================
+      function findActiveCueIndex(timeMs) {
+        const cues = parsedTrack.cues;
+        let idx = -1;
+        for (let i = cues.length - 1; i >= 0; i--) {
+          if (timeMs >= cues[i].timeMs) {
+            idx = i;
+            break;
+          }
+        }
+        return idx;
+      }
+
+      function tick() {
+        const currentMs = getCurrentPlaybackMs();
+        const durationMs = parsedTrack.totalDurationMs;
+
+        // Auto-stop at end of track (Host broadcasts final paused state)
+        if (syncState.isPlaying && currentMs >= durationMs) {
+          if (isHost) {
+            broadcastState({
+              ...syncState,
+              isPlaying: false,
+              anchorTimeMs: 0,
+              anchorOffsetMs: durationMs,
+            });
+          }
+        }
+
+        // Update timers & progress bars
+        const formatted = formatTime(currentMs);
+        els.timeCurrent.textContent = formatted;
+        els.phoneTimeBadge.textContent = formatted;
+
+        const pct = durationMs > 0 ? Math.min(100, (currentMs / durationMs) * 100) : 0;
+        els.phoneProgressBar.style.width = `${pct}%`;
+
+        if (!isScrubbing) {
+          els.progressScrubber.value = String(Math.round(pct * 10));
+        }
+
+        // Update active lyric lines in both viewports
+        const activeIdx = findActiveCueIndex(currentMs);
+        updateViewportHighlight('primary', activeIdx);
+        if (isSplitPreview) {
+          updateViewportHighlight('phone', activeIdx);
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      // ==========================================
+      // 10. HOST PLAYBACK ACTIONS
+      // ==========================================
+      function togglePlayPause() {
+        if (!isHost) return;
+        const now = Date.now();
+        if (syncState.isPlaying) {
+          const pausedAt = getCurrentPlaybackMs();
+          broadcastState({
+            ...syncState,
+            isPlaying: false,
+            anchorTimeMs: 0,
+            anchorOffsetMs: pausedAt,
+          });
+        } else {
+          let startOffset = getCurrentPlaybackMs();
+          if (startOffset >= parsedTrack.totalDurationMs - 200) {
+            startOffset = 0;
+          }
+          broadcastState({
+            ...syncState,
+            isPlaying: true,
+            anchorTimeMs: now,
+            anchorOffsetMs: startOffset,
+          });
+        }
+      }
+
+      function seekToMs(targetMs) {
+        if (!isHost) return;
+        const clamped = Math.max(0, Math.min(parsedTrack.totalDurationMs, targetMs));
+        broadcastState({
+          ...syncState,
+          anchorTimeMs: syncState.isPlaying ? Date.now() : 0,
+          anchorOffsetMs: clamped,
+        });
+        setManualScroll('primary', false);
+        setManualScroll('phone', false);
+      }
+
+      function setPlaybackRate(rate) {
+        if (!isHost) return;
+        const currentMs = getCurrentPlaybackMs();
+        broadcastState({
+          ...syncState,
+          playbackRate: rate,
+          anchorTimeMs: syncState.isPlaying ? Date.now() : 0,
+          anchorOffsetMs: currentMs,
+        });
+      }
+
+      // Bind Host Controls
+      els.btnPlayPause.addEventListener('click', togglePlayPause);
+
+      els.btnReset.addEventListener('click', () => {
+        if (!isHost) return;
+        broadcastState({
+          ...syncState,
+          isPlaying: false,
+          anchorTimeMs: 0,
+          anchorOffsetMs: 0,
+        });
+        setManualScroll('primary', false);
+        setManualScroll('phone', false);
+        els.primaryLyricsContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        els.phoneLyricsContainer.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+
+      els.btnSkipBack.addEventListener('click', () => seekToMs(getCurrentPlaybackMs() - 5000));
+      els.btnSkipForward.addEventListener('click', () => seekToMs(getCurrentPlaybackMs() + 5000));
+
+      els.speedBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const rate = parseFloat(btn.dataset.speed);
+          if (!isNaN(rate)) setPlaybackRate(rate);
+        });
+      });
+
+      // Scrubber drag handling (mouse + touch)
+      els.progressScrubber.addEventListener('input', () => {
+        if (!isHost) return;
+        isScrubbing = true;
+        const ratio = parseFloat(els.progressScrubber.value) / 1000;
+        els.timeCurrent.textContent = formatTime(ratio * parsedTrack.totalDurationMs);
+      });
+
+      els.progressScrubber.addEventListener('change', () => {
+        if (!isHost) return;
+        isScrubbing = false;
+        const ratio = parseFloat(els.progressScrubber.value) / 1000;
+        seekToMs(ratio * parsedTrack.totalDurationMs);
+      });
+
+      // Keyboard spacebar shortcut for Host (when modal is closed)
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && els.lrcModal.classList.contains('hidden') && isHost) {
+          const tag = document.activeElement?.tagName;
+          if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'BUTTON') {
+            e.preventDefault();
+            togglePlayPause();
+          }
+        }
+      });
+
+      // ==========================================
+      // 11. HEADER TOGGLES (ROLE, SPLIT, WAKELOCK)
+      // ==========================================
+      els.btnToggleRole.addEventListener('click', () => {
+        isHost = !isHost;
+        updateRoleUI();
+        showToast(isHost ? 'Switched to Host Mode' : 'Switched to Viewer Mode');
+      });
+
+      els.btnToggleSplit.addEventListener('click', () => {
+        isSplitPreview = !isSplitPreview;
+        if (isSplitPreview) {
+          els.splitViewerPanel.classList.remove('hidden');
+          els.btnToggleSplit.classList.add('bg-cyan-500/20', 'border-cyan-400/40', 'text-cyan-200');
+          // Immediately sync phone viewport to active line
+          const idx = findActiveCueIndex(getCurrentPlaybackMs());
+          viewports.phone.activeIndex = -1;
+          updateViewportHighlight('phone', idx);
+          if (idx >= 0) {
+            setTimeout(() => scrollActiveLineIntoCenter('phone', idx, true), 50);
+          }
+        } else {
+          els.splitViewerPanel.classList.add('hidden');
+          els.btnToggleSplit.classList.remove('bg-cyan-500/20', 'border-cyan-400/40', 'text-cyan-200');
+        }
+      });
+
+      // Screen Wake Lock API with graceful fallback
+      async function toggleWakeLock() {
+        if (!('wakeLock' in navigator)) {
+          showToast('Screen Wake Lock is not supported in this browser.');
+          return;
+        }
+        try {
+          if (wakeLockSentinel) {
+            await wakeLockSentinel.release();
+            wakeLockSentinel = null;
+            els.btnWakeLock.classList.remove('bg-amber-500/20', 'border-amber-400/40', 'text-amber-300');
+            showToast('Screen Wake Lock disabled');
+          } else {
+            wakeLockSentinel = await navigator.wakeLock.request('screen');
+            els.btnWakeLock.classList.add('bg-amber-500/20', 'border-amber-400/40', 'text-amber-300');
+            showToast('Screen Wake Lock active');
+            wakeLockSentinel.addEventListener('release', () => {
+              wakeLockSentinel = null;
+              els.btnWakeLock.classList.remove('bg-amber-500/20', 'border-amber-400/40', 'text-amber-300');
+            });
+          }
+        } catch (err) {
+          showToast('Wake Lock unavailable in this preview frame.');
+        }
+      }
+
+      els.btnWakeLock.addEventListener('click', toggleWakeLock);
+
+      // Re-acquire Wake Lock if tab becomes visible again
+      document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible' && wakeLockSentinel === null && els.btnWakeLock.classList.contains('text-amber-300')) {
+          try {
+            wakeLockSentinel = await navigator.wakeLock.request('screen');
+          } catch (err) {
+            // Ignore silent re-acquire failure
+          }
+        }
+      });
+
+      // ==========================================
+      // 12. LOAD CUSTOM LRC MODAL
+      // ==========================================
+      function updateModalPreview() {
+        const text = els.lrcTextarea.value;
+        const preview = parseLRC(text);
+        if (preview.cues.length === 0) {
+          els.lrcParseFeedback.className = 'text-xs px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-400/25 text-amber-200';
+          els.lrcParseFeedback.textContent = 'No [mm:ss.xx] timestamps detected yet. Paste LRC lyrics or upload a .lrc file.';
+        } else {
+          els.lrcParseFeedback.className = 'text-xs px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/25 text-emerald-200';
+          els.lrcParseFeedback.textContent = `Detected "${preview.meta.title}" by ${preview.meta.artist} • ${preview.cues.length} cues • ${formatTime(preview.totalDurationMs)}`;
+        }
+      }
+
+      function openModal() {
+        els.lrcTextarea.value = syncState.lrcText;
+        updateModalPreview();
+        els.lrcModal.classList.remove('hidden');
+      }
+
+      function closeModal() {
+        els.lrcModal.classList.add('hidden');
+      }
+
+      els.btnOpenLoadModal.addEventListener('click', openModal);
+      els.btnCloseModal.addEventListener('click', closeModal);
+      els.btnCancelModal.addEventListener('click', closeModal);
+      els.lrcTextarea.addEventListener('input', updateModalPreview);
+
+      els.btnLoadSample.addEventListener('click', () => {
+        els.lrcTextarea.value = SAMPLE_LRC;
+        updateModalPreview();
+      });
+
+      els.btnClearLrc.addEventListener('click', () => {
+        els.lrcTextarea.value = '';
+        updateModalPreview();
+        els.lrcTextarea.focus();
+      });
+
+      // File upload handler
+      els.lrcFileInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            els.lrcTextarea.value = String(ev.target.result || '');
+            updateModalPreview();
+            showToast(`Loaded "${file.name}"`);
+          };
+          reader.onerror = () => showToast('Could not read the selected file.');
+          reader.readAsText(file);
+        } catch (err) {
+          showToast('Error opening file.');
+        }
+        e.target.value = '';
+      });
+
+      // Apply & Sync LRC
+      els.btnApplyLrc.addEventListener('click', () => {
+        const newLrc = els.lrcTextarea.value.trim();
+        const check = parseLRC(newLrc);
+        if (check.cues.length === 0) {
+          showToast('Please enter valid LRC text with [mm:ss.xx] timestamps.');
+          return;
+        }
+
+        // Automatically switch to Host so the user can immediately control playback
+        if (!isHost) {
+          isHost = true;
+          updateRoleUI();
+        }
+
+        broadcastState({
+          ...syncState,
+          lrcText: newLrc,
+          isPlaying: false,
+          anchorTimeMs: 0,
+          anchorOffsetMs: 0,
+        });
+
+        closeModal();
+        showToast(`Synced "${check.meta.title}" (${check.cues.length} lines)`);
+      });
+
+      // Close modal on backdrop click
+      els.lrcModal.addEventListener('click', (e) => {
+        if (e.target === els.lrcModal) closeModal();
+      });
+
+      // ==========================================
+      // 13. INITIALIZE APP
+      // ==========================================
+      hydrateInitialState();
+      updateRoleUI();
+      applySyncStateToUI();
+      requestAnimationFrame(tick);
+    })();
+  </script>
+</body>
+</html>
